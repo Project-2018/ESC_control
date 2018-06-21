@@ -15,7 +15,10 @@
 #include "usbcfg.h"
 
 #define DEBOUNCE_DELAY_TIME     4      /* 40ms */
-#define ESC_RPM                 1000
+#define ESC_RPM                 4800   /* 600 RPM */
+#define PRESCALER_TIME          0
+
+static uint8_t prescaler;
 
 static struct Debounce{
   bool btnUp_state;
@@ -76,22 +79,24 @@ static THD_FUNCTION(ESCControl, p) {
     }
     debounce.btnDown_last = debounce.btnDown_currently;
 
-
-
-    debounce.btnUp_currently   ? setUpLedState(LED_FULL)   : setUpLedState(LED_IDLE);
-    debounce.btnDown_currently ? setDownLedState(LED_FULL) : setDownLedState(LED_IDLE);
-
+    
+    /* Switching the LEDs */
+    debounce.btnUp_currently   ? setUpLedState(LED_PUSHED)   : setUpLedState(LED_FULL);
+    debounce.btnDown_currently ? setDownLedState(LED_PUSHED) : setDownLedState(LED_FULL);
 
 
     /* Up button is pressed */
     if (debounce.btnUp_state)
-    {
+    { 
         //bldc_interface_set_rpm(ESC_RPM);
+        //bldc_interface_set_duty_cycle(0.5);
+        bldc_interface_set_current(2);
+        //bldc_interface_send_alive();
+
     }
     else{
     }
     
-
 
     /* Down button is pressed */
     if (debounce.btnDown_state)

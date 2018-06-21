@@ -47,7 +47,7 @@ static THD_FUNCTION(up_led_thd, p) {
     	    pwmEnableChannel(&ESC_PWM_DRIVER, ESC_PWM_UP_CHANNEL-1, PWM_PERCENTAGE_TO_WIDTH(&ESC_PWM_DRIVER, ESC_PWM_MAX_DUTY));
     	    break;
 
-    	case LED_IDLE:
+    	case LED_PUSHED:
     	    pwmEnableChannel(&ESC_PWM_DRIVER, ESC_PWM_UP_CHANNEL-1, PWM_PERCENTAGE_TO_WIDTH(&ESC_PWM_DRIVER, ESC_PWM_IDLE_DUTY));
     	    break;
 
@@ -83,7 +83,7 @@ static THD_FUNCTION(down_led_thd, p) {
     	    pwmEnableChannel(&ESC_PWM_DRIVER, ESC_PWM_DOWN_CHANNEL-1, PWM_PERCENTAGE_TO_WIDTH(&ESC_PWM_DRIVER, ESC_PWM_MAX_DUTY));
     	    break;
 
-    	case LED_IDLE:
+    	case LED_PUSHED:
     	    pwmEnableChannel(&ESC_PWM_DRIVER, ESC_PWM_DOWN_CHANNEL-1, PWM_PERCENTAGE_TO_WIDTH(&ESC_PWM_DRIVER, ESC_PWM_IDLE_DUTY));
     	    break;
 
@@ -104,6 +104,8 @@ void ESC_LedInit(void){
     downLedState = LED_OFF;
 
     pwmStart(&ESC_PWM_DRIVER, &esc_pwmcfg);
+    pwmDisableChannel(&ESC_PWM_DRIVER, ESC_PWM_UP_CHANNEL-1);
+    pwmDisableChannel(&ESC_PWM_DRIVER, ESC_PWM_DOWN_CHANNEL-1);
 
     /*
      * Creates the up button PWM control.

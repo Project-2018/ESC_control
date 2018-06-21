@@ -30,7 +30,7 @@
 #include <string.h>
 
 // Settings
-#define UART_BAUDRATE			230400
+#define UART_BAUDRATE			115200
 #define UART_DEV				UARTD1
 #define UART_GPIO_AF			7
 

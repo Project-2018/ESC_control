@@ -7,7 +7,7 @@
 typedef enum{
 	LED_OFF,
 	LED_FULL,
-	LED_IDLE,
+	LED_PUSHED,
 	LED_ERROR
 }ledState;
 
