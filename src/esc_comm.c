@@ -8,7 +8,6 @@
 
 #include "esc_comm.h"
 #include "comm_uart.h"
-#include "bldc_interface.h"
 #include "console.h"
 #include "esc_led.h"
 
@@ -16,9 +15,11 @@
 
 #define DEBOUNCE_DELAY_TIME     4      /* 40ms */
 #define ESC_RPM                 4800   /* 600 RPM */
-#define PRESCALER_TIME          0
+#define RPM_STEP                200    /* RPM step */
+#define PRESCALER_TIME          2      /* x * thd cycle */
 
 static uint8_t prescaler;
+static int32_t currently_set_rpm;
 
 static struct Debounce{
   bool btnUp_state;
@@ -30,6 +31,11 @@ static struct Debounce{
   uint8_t btnUpCnt;
   uint8_t btnDownCnt
 }debounce;
+
+/* Callback function for the received data. */
+void val_received(mc_values *val) {
+    mc_val = val;
+}
 
 static THD_WORKING_AREA(ESCControl_wa, 128);
 static THD_FUNCTION(ESCControl, p) {
@@ -79,41 +85,69 @@ static THD_FUNCTION(ESCControl, p) {
     }
     debounce.btnDown_last = debounce.btnDown_currently;
 
+
     
     /* Switching the LEDs */
     debounce.btnUp_currently   ? setUpLedState(LED_PUSHED)   : setUpLedState(LED_FULL);
     debounce.btnDown_currently ? setDownLedState(LED_PUSHED) : setDownLedState(LED_FULL);
 
 
+
     /* Up button is pressed */
     if (debounce.btnUp_state)
-    { 
-        //bldc_interface_set_rpm(ESC_RPM);
+    {   
+        if (PRESCALER_TIME < prescaler++)
+        {
+            currently_set_rpm = (currently_set_rpm + RPM_STEP) < ESC_RPM ? currently_set_rpm + RPM_STEP : ESC_RPM;
+            prescaler = 0;
+        }
+        if (currently_set_rpm > 0)
+        {
+            bldc_interface_set_rpm(currently_set_rpm);
+        }
         //bldc_interface_set_duty_cycle(0.5);
-        bldc_interface_set_current(2);
-        //bldc_interface_send_alive();
+        //bldc_interface_set_current(2);
 
-    }
-    else{
     }
     
-
     /* Down button is pressed */
     if (debounce.btnDown_state)
     {
-        //bldc_interface_set_rpm(-ESC_RPM);
-    }
-    else{
+        if (PRESCALER_TIME < prescaler++)
+        {
+            currently_set_rpm = (currently_set_rpm - RPM_STEP) > -ESC_RPM ? currently_set_rpm - RPM_STEP : -ESC_RPM;
+            prescaler = 0;
+        }
+        
+        if (currently_set_rpm < 0)
+        {
+            bldc_interface_set_rpm(currently_set_rpm);
+        }
+        //bldc_interface_set_current(2);
     }
 
     if ((debounce.btnUp_state == 0) && (debounce.btnDown_state == 0))
     {
-        //bldc_interface_set_rpm(0);
+        if (PRESCALER_TIME < prescaler++)
+        {
+            
+            if (currently_set_rpm > 0)
+            {
+                currently_set_rpm = (currently_set_rpm - RPM_STEP) > 0 ? currently_set_rpm - RPM_STEP : 0;
+            }
+            else if (currently_set_rpm < 0)
+            {
+                currently_set_rpm = (currently_set_rpm + RPM_STEP) < 0 ? currently_set_rpm + RPM_STEP : 0;
+            }
+            prescaler = 0;
+        }
+        
+        bldc_interface_set_rpm(currently_set_rpm);
         //bldc_interface_set_handbrake(5);
     }
 
 
-    //bldc_interface_get_values();
+    bldc_interface_get_values();
     //bldc_interface_get_fw_version();
     //bldc_interface_set_current ( 10.0 );
 
@@ -123,16 +157,30 @@ static THD_FUNCTION(ESCControl, p) {
 
 void ESC_ControlInit(void){
 
-  debounce.btnUp_state       = 0;
-  debounce.btnUp_currently   = 0;
-  debounce.btnUp_last        = 0;
-  debounce.btnDown_state     = 0;
-  debounce.btnDown_currently = 0;
-  debounce.btnDown_last      = 0;
+//  debounce.btnUp_state       = 0;
+//  debounce.btnUp_currently   = 0;
+//  debounce.btnUp_last        = 0;
+//  debounce.btnDown_state     = 0;
+//  debounce.btnDown_currently = 0;
+//  debounce.btnDown_last      = 0;
 
-  comm_uart_init();
+//  comm_uart_init();
 
-  ESC_LedInit();
+//  ESC_LedInit();
 
-  chThdCreateStatic(ESCControl_wa, sizeof(ESCControl_wa), NORMALPRIO + 1, ESCControl, NULL);
+//  bldc_interface_set_rx_value_func(val_received);
+
+//  chThdCreateStatic(ESCControl_wa, sizeof(ESCControl_wa), NORMALPRIO + 1, ESCControl, NULL);
 }
+
+double getESCTemp(void)          { return mc_val->temp_pcb; }
+double getAcCurrent(void)        { return mc_val->current_motor; }
+double getDcCurrent(void)        { return mc_val->current_in; }
+double getERPM(void)             { return mc_val->rpm; }
+double getDutyCycle(void)        { return mc_val->duty_now * 100.0; }
+double getAmpHours(void)         { return mc_val->amp_hours; }
+double getAmpHoursCharged(void)  { return mc_val->amp_hours_charged; }
+double getWattHours(void)        { return mc_val->watt_hours; }
+double getWattHoursCharged(void) { return mc_val->watt_hours_charged; }
+int16_t getTachometer(void)      { return mc_val->tachometer; }
+int16_t getTachometerAbs(void)   { return mc_val->tachometer_abs; }

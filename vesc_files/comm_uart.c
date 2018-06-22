@@ -45,9 +45,9 @@
 #define UART_RX_PIN				7
 #else
 #define UART_TX_PORT			GPIOA
-#define UART_TX_PIN				9
+#define UART_TX_PIN	            9
 #define UART_RX_PORT			GPIOA
-#define UART_RX_PIN				10
+#define UART_RX_PIN			    10
 #endif
 
 #define SERIAL_RX_BUFFER_SIZE	1024
