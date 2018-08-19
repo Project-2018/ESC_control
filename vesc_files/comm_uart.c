@@ -26,13 +26,15 @@
 #include "ch.h"
 #include "hal.h"
 #include "bldc_interface_uart.h"
+#include "usbdrv.h"
 
 #include <string.h>
 
 // Settings
-#define UART_BAUDRATE			115200
-#define UART_DEV				UARTD1
-#define UART_GPIO_AF			7
+#define UART_BAUDRATE			        115200
+#define UART_DEV				        UARTD2
+#define UART_GPIO_AF			        7
+#define DISABLE_SERIAL_IF_USB_ACTIVE    FALSE
 
 /* 
  * 1 = STM32F4 Discovery board
@@ -45,9 +47,9 @@
 #define UART_RX_PIN				7
 #else
 #define UART_TX_PORT			GPIOA
-#define UART_TX_PIN	            9
+#define UART_TX_PIN	            2
 #define UART_RX_PORT			GPIOA
-#define UART_RX_PIN			    10
+#define UART_RX_PIN			    3
 #endif
 
 #define SERIAL_RX_BUFFER_SIZE	1024
@@ -189,7 +191,15 @@ static void send_packet(unsigned char *data, unsigned int len) {
 	memcpy(buffer, data, len);
 
 	// Send the data over UART
-	uartStartSend(&UART_DEV, len, buffer);
+#if DISABLE_SERIAL_IF_USB_ACTIVE
+	if (!usbdrvGetActive())
+	{
+#endif
+	    uartStartSend(&UART_DEV, len, buffer);
+
+#if DISABLE_SERIAL_IF_USB_ACTIVE
+	}
+#endif
 }
 
 /**
@@ -210,6 +220,11 @@ static THD_FUNCTION(timer_thread, arg) {
 void comm_uart_init(void) {
 	// Initialize UART
 	uartStart(&UART_DEV, &uart_cfg);
+
+#if ((UART_TX_PIN == 2) && (UART_RX_PIN == 3))
+    uartStart(&UARTD1, &uart_cfg);
+#endif
+
 	palSetPadMode(UART_TX_PORT, UART_TX_PIN, PAL_MODE_ALTERNATE(UART_GPIO_AF) |
 			PAL_STM32_OSPEED_HIGHEST |
 			PAL_STM32_PUPDR_PULLUP);
