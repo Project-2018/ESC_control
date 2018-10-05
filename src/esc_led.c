@@ -5,7 +5,7 @@
 #define ESC_PWM_DRIVER          PWMD9
 #define ESC_PWM_UP_CHANNEL      1
 #define ESC_PWM_DOWN_CHANNEL    2
-#define ESC_PWM_MAX_DUTY        10000
+#define ESC_PWM_MAX_DUTY        5000
 #define ESC_PWM_IDLE_DUTY       2000
 #define ESC_PWM_MIN_DUTY        0
 
