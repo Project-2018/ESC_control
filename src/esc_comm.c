@@ -418,10 +418,11 @@ static THD_FUNCTION(ESCControl, p) {
         if(BeepCounter > (1000.0f / (float)TASK_PERIOD_MS)){
           BeepState = BEEP_END;
         }
+        BeepCounter++;
 
       break;
       case BEEP_END:
-
+        BeepCounter = 0;
       break;
     }
 
