@@ -26,6 +26,7 @@ typedef enum {
 
 typedef enum {
 	BEEP_1S,
+	BEEP_MAINTENANCE,
 	BEEP_END
 } BeepTypes_t;
 
@@ -61,5 +62,7 @@ uint16_t GetLiftedWeightKg(void);
 uint16_t GetLiftedWeightLbs(void);
 
 bool IsEscInOverTemperature(void);
+
+void DoBeep(void);
 
 #endif

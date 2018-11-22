@@ -21,8 +21,8 @@
 #define ESC_MAX_TEMP            80
 #define ESC_TEMP_HYS            5
 
-#define TOTAL_BRAKE_TIME        10
-#define ACTIVE_BRAKE_TIME       5
+#define TOTAL_BRAKE_TIME        5000
+#define ACTIVE_BRAKE_TIME       3500
 
 #define SPEAKER_ACTIVE_PWM      5000
 
@@ -108,7 +108,7 @@ bool GetBottomSwitchState(void){
 }
 
 bool GetMiddleSwitchState(void){
-  return true;
+  //return true;
   if(palReadLine(LINE_SW2) == PAL_LOW)
     return true;
 
@@ -229,13 +229,13 @@ static THD_FUNCTION(BrakeTask, p) {
     if(BrakeCounter != LastCounter){
       LastCounter = BrakeCounter;
       palSetLine(LINE_SOLENOID);
-      chThdSleepMilliseconds(ACTIVE_BRAKE_TIME);
+      chThdSleep(TIME_US2I(ACTIVE_BRAKE_TIME));
       palClearLine(LINE_SOLENOID);
-      chThdSleepMilliseconds(TOTAL_BRAKE_TIME - ACTIVE_BRAKE_TIME);
+      chThdSleep(TIME_US2I(TOTAL_BRAKE_TIME - ACTIVE_BRAKE_TIME));
     }else{
       LastCounter = BrakeCounter;
       palClearLine(LINE_SOLENOID);
-      chThdSleepMilliseconds(TOTAL_BRAKE_TIME);
+      chThdSleep(TIME_US2I(TOTAL_BRAKE_TIME));
     }
 
     
@@ -320,6 +320,7 @@ static THD_FUNCTION(ESCControl, p) {
           EscCtrlStatus = ONLY_DOWN;
           setUpLedState(LED_OFF);
           ADD_SYSLOG(SYSLOG_WARN, "ESC", "Machine rolling detected. Lifting blocked.");
+          DoBeep();
           break;
         }
 
@@ -416,6 +417,14 @@ static THD_FUNCTION(ESCControl, p) {
       case BEEP_1S:
         pwmEnableChannel(&PWMD8, 0, PWM_PERCENTAGE_TO_WIDTH(&PWMD8, SPEAKER_ACTIVE_PWM));
         if(BeepCounter > (1000.0f / (float)TASK_PERIOD_MS)){
+          BeepState = BEEP_END;
+        }
+        BeepCounter++;
+
+      break;
+      case BEEP_MAINTENANCE:
+        pwmEnableChannel(&PWMD8, 0, PWM_PERCENTAGE_TO_WIDTH(&PWMD8, SPEAKER_ACTIVE_PWM));
+        if(BeepCounter > (2000.0f / (float)TASK_PERIOD_MS)){
           BeepState = BEEP_END;
         }
         BeepCounter++;
