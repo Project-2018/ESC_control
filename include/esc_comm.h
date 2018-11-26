@@ -63,6 +63,10 @@ uint16_t GetLiftedWeightLbs(void);
 
 bool IsEscInOverTemperature(void);
 
+bool IsInOverWeightState(void);
+
+uint8_t GetLiftingSpeed(void);
+
 void DoBeep(void);
 
 #endif

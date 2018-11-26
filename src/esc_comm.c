@@ -93,6 +93,23 @@ void SetLiftingSpeed(uint8_t val){
   }
 }
 
+uint8_t GetLiftingSpeed(void){
+  switch(LiftingSpeed){
+    case ESC_RPM_0:
+      return 0;
+    break;
+    case ESC_RPM_1:
+      return 1;
+    break;
+    case ESC_RPM_2:
+      return 2;
+    break;
+    default:
+      return 1;
+    break;
+  }  
+}
+
 bool GetTopSwitchState(void){
   if(!palReadLine(LINE_SW1) == PAL_LOW)
     return true;
@@ -153,13 +170,14 @@ void DownButtonProcess(void){
       currently_set_rpm = (currently_set_rpm - RPM_STEP) > -LiftingSpeed ? currently_set_rpm - RPM_STEP : -LiftingSpeed;
       bldc_interface_set_rpm(currently_set_rpm);
       
+      /*
       if (currently_set_rpm < (-LiftingSpeed * 0.5))
       {
           if (escGetERPM() > (int32_t)(currently_set_rpm * 0.50))
           {
               currently_set_rpm = 0;
           }
-      }
+      }*/
   }
 
 }
@@ -176,13 +194,14 @@ void UpButtonProcess(void){
       currently_set_rpm = (currently_set_rpm + RPM_STEP) < LiftingSpeed ? currently_set_rpm + RPM_STEP : LiftingSpeed;
       bldc_interface_set_rpm(currently_set_rpm);
       
+      /*
       if (currently_set_rpm > (LiftingSpeed * 0.5))
       {
           if (escGetERPM() < (int32_t)(currently_set_rpm * 0.50))
           {
               currently_set_rpm = 0;
           }
-      }
+      }*/
   }
 }
 
@@ -223,6 +242,7 @@ static THD_FUNCTION(BrakeTask, p) {
   (void)p;
   chRegSetThreadName("BrakeTHD");
   uint32_t LastCounter = 0;
+  
   
   while (TRUE) {
 
@@ -464,6 +484,10 @@ void ESC_ControlInit(EscControlConf_t* conf){
 
   pwmStart(&PWMD8, &pwmcfg);
 
+  bldc_interface_get_values();
+
+  SetLiftingSpeed(2);
+
   chThdCreateStatic(ESCControl_wa, sizeof(ESCControl_wa), NORMALPRIO + 1, ESCControl, NULL);
   chThdCreateStatic(BrakeTask_wa, sizeof(BrakeTask_wa), NORMALPRIO + 1, BrakeTask, NULL);
 }
@@ -492,6 +516,10 @@ uint16_t GetLiftedWeightLbs(void){
 
 bool IsEscInOverTemperature(void){
   return EscTempAlarm;
+}
+
+bool IsInOverWeightState(void){
+  return false;
 }
 
 /*

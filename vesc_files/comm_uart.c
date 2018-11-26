@@ -26,7 +26,7 @@
 #include "ch.h"
 #include "hal.h"
 #include "bldc_interface_uart.h"
-#include "usbdrv.h"
+//#include "usbdrv.h"
 
 #include <string.h>
 
@@ -221,9 +221,9 @@ void comm_uart_init(void) {
 	// Initialize UART
 	uartStart(&UART_DEV, &uart_cfg);
 
-#if ((UART_TX_PIN == 2) && (UART_RX_PIN == 3))
+/*#if ((UART_TX_PIN == 2) && (UART_RX_PIN == 3))
     uartStart(&UARTD1, &uart_cfg);
-#endif
+#endif*/
 
 	palSetPadMode(UART_TX_PORT, UART_TX_PIN, PAL_MODE_ALTERNATE(UART_GPIO_AF) |
 			PAL_STM32_OSPEED_HIGHEST |
