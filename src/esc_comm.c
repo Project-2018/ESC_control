@@ -13,18 +13,29 @@
 #include "calc.h"
 #include "syslog.h"
 
+#include "memorymap.h"
+#include "eeprom.h"
+
+#define VESC_FW_MINOR           1
+#define VESC_FW_MAJOR           1
+
 #define DEBOUNCE_DELAY_TIME     4      /* 40ms */
 #define ESC_RPM_0               4000   /* 500 RPM */
 #define ESC_RPM_1               4400   /* 550 RPM */
 #define ESC_RPM_2               4800   /* 600 RPM */
 #define RPM_STEP                50     /* RPM step */
-#define ESC_MAX_TEMP            80
-#define ESC_TEMP_HYS            5
+
+#define ESC_MAX_TEMP            75
+#define ESC_TEMP_HYS            10
 
 #define TOTAL_BRAKE_TIME        5000
 #define ACTIVE_BRAKE_TIME       3500
 
-#define SPEAKER_ACTIVE_PWM      5000
+#define SPEAKER_ACTIVE_PWM      500
+
+#define WEIGHT_LIMIT_KG         530
+
+#define PERIODIC_POSTSCALER     20
 
 static int32_t currently_set_rpm;
 
@@ -57,9 +68,21 @@ BeepTypes_t BeepState = BEEP_END;
 
 uint32_t BeepCounter = 0;
 
+bool IsOverWeightPresent = false;
+
+ESCConnectionType_t EscConnection = ESC_DISCONNECTED;
+
+virtual_timer_t EscConnTimeout;
+
+uint16_t UptimeCounter = 0;
+
+uint16_t PeriodicDataPostscaler = 0;
+
+uint8_t BeepForRollingDone = 0;
+
 static PWMConfig pwmcfg = {
-  10000,                                    /* 10kHz PWM clock frequency.   */
-  10000,                                    /* Initial PWM period 1S.       */
+  250000,                                    /* 10kHz PWM clock frequency.   */
+  100,                                    /* Initial PWM period 1S.       */
   NULL,
   {
    {PWM_OUTPUT_ACTIVE_HIGH, NULL},
@@ -71,9 +94,15 @@ static PWMConfig pwmcfg = {
   0
 };
 
+void EscConnectionTimeout_fb(void){
+  EscConnection = ESC_DISCONNECTED;
+}
+
 /* Callback function for the received data. */
 void val_received(mc_values *val) {
     mc_val = val;
+    EscConnection = ESC_CONNECTED;
+    chVTSet(&EscConnTimeout, TIME_MS2I(1000), EscConnectionTimeout_fb, NULL);
 }
 
 void SetLiftingSpeed(uint8_t val){
@@ -137,21 +166,22 @@ void ReleaseBrake(void){
 }
 
 void CalcLiftedWeight(void){
+  if(GetMiddleSwitchState() == false){
+      if(escGetERPM() >= (int32_t)(currently_set_rpm * 0.95)){
 
-  if(escGetERPM() > (int32_t)(currently_set_rpm * 0.95)){
+      switch(LiftingSpeed){
+        case ESC_RPM_0:
+          LiftedWeight = GetLiftedWeightSpd0();
+        break;
+        case ESC_RPM_1:
+          LiftedWeight = GetLiftedWeightSpd1();
+        break;
+        case ESC_RPM_2:
+          LiftedWeight = GetLiftedWeightSpd2();
+        break;
+      }    
 
-    switch(LiftingSpeed){
-      case ESC_RPM_0:
-        LiftedWeight = GetLiftedWeightSpd0();
-      break;
-      case ESC_RPM_1:
-        LiftedWeight = GetLiftedWeightSpd1();
-      break;
-      case ESC_RPM_2:
-        LiftedWeight = GetLiftedWeightSpd2();
-      break;
-    }    
-
+    }  
   }
 }
 
@@ -161,12 +191,16 @@ void ResetLiftedWeight(void){
 
 void DownButtonProcess(void){
 
+  if(EscConnection != ESC_CONNECTED){
+    setDownLedState(LED_OFF);
+    return;
+  }
+
   debounce.btnDown_currently ? setDownLedState(LED_PUSHED) : setDownLedState(LED_FULL);
 
   /* Down button is pressed */
   if (debounce.btnDown_state && !debounce.btnUp_state)
   {
-      ReleaseBrake();
       currently_set_rpm = (currently_set_rpm - RPM_STEP) > -LiftingSpeed ? currently_set_rpm - RPM_STEP : -LiftingSpeed;
       bldc_interface_set_rpm(currently_set_rpm);
       
@@ -183,13 +217,17 @@ void DownButtonProcess(void){
 }
 
 void UpButtonProcess(void){
+  if(EscConnection != ESC_CONNECTED){
+    setUpLedState(LED_OFF);
+    return;
+  }
+
   /* Setting the button LEDs */
   debounce.btnUp_currently   ? setUpLedState(LED_PUSHED)   : setUpLedState(LED_FULL);
   
   /* Up button is pressed */
   if (debounce.btnUp_state && !debounce.btnDown_state)
   {   
-      ReleaseBrake();
       CalcLiftedWeight();
       currently_set_rpm = (currently_set_rpm + RPM_STEP) < LiftingSpeed ? currently_set_rpm + RPM_STEP : LiftingSpeed;
       bldc_interface_set_rpm(currently_set_rpm);
@@ -203,6 +241,25 @@ void UpButtonProcess(void){
           }
       }*/
   }
+}
+
+void CheckWeight(void){
+
+  if(!debounce.btnUp_state){
+    IsOverWeightPresent = false;
+    return;
+  }
+
+  if(IsOverWeightPresent == true){
+    return;
+  }
+
+  if(GetLiftedWeightKg() >= WEIGHT_LIMIT_KG && debounce.btnUp_state && !debounce.btnDown_state){
+    IsOverWeightPresent = true;
+    ADD_SYSLOG(SYSLOG_ERROR, "ESC", "Overweight detected: %d kg", GetLiftedWeightKg());
+    DoBeep();
+  }
+
 }
 
 void StopLifting(void){
@@ -232,9 +289,19 @@ void RPMGuard(void){
   }
 }
 
+void CheckRolling(void){
+  if(EscControlConf->IsRollingDetected() == true && BeepForRollingDone == 0){
+    DoBeep();
+    BeepForRollingDone = 1;
+  }
+  if(EscControlConf->IsRollingDetected() == false)
+    BeepForRollingDone = 0;
+}
+
 void DoBeep(void){
   BeepState = BEEP_1S;
 }
+
 
 static THD_WORKING_AREA(BrakeTask_wa, 256);
 static THD_FUNCTION(BrakeTask, p) {
@@ -253,6 +320,7 @@ static THD_FUNCTION(BrakeTask, p) {
       palClearLine(LINE_SOLENOID);
       chThdSleep(TIME_US2I(TOTAL_BRAKE_TIME - ACTIVE_BRAKE_TIME));
     }else{
+
       LastCounter = BrakeCounter;
       palClearLine(LINE_SOLENOID);
       chThdSleep(TIME_US2I(TOTAL_BRAKE_TIME));
@@ -263,7 +331,39 @@ static THD_FUNCTION(BrakeTask, p) {
 
 }
 
-static THD_WORKING_AREA(ESCControl_wa, 512);
+
+static THD_WORKING_AREA(UptimeCount_wa, 256);
+static THD_FUNCTION(UptimeCount, p) {
+
+  (void)p;
+  chRegSetThreadName("UptimeCounter");
+  
+  while (TRUE) {
+
+      if(EscControlConf->IsDschAllowedByBMS() == true){
+
+        uint32_t* UptimeMinPtr = GetUptimeMin();
+
+        UptimeCounter++;
+
+        if(UptimeCounter >= 60){
+          
+          (*UptimeMinPtr)++;
+          UptimeCounter = 0;
+          StoreRecordToEeprom(UPTIMEMIN);
+        }
+
+      }
+
+      chThdSleepMilliseconds(1000);
+
+  }
+
+}
+
+
+
+static THD_WORKING_AREA(ESCControl_wa, 1024);
 static THD_FUNCTION(ESCControl, p) {
 
   (void)p;
@@ -312,11 +412,18 @@ static THD_FUNCTION(ESCControl, p) {
     switch(EscCtrlStatus){
       case UP_AND_DOWN:
 
-        if(EscControlConf->IsDschAllowedByBMS() == false || EscTempAlarm == true){
+        if(EscControlConf->IsDschAllowedByBMS() == false){
           StopLifting();
           EscCtrlStatus = NO_LIFT_ALLOWED;
           setUpLedState(LED_OFF);
           setDownLedState(LED_OFF);
+          break;
+        }
+
+        if(EscTempAlarm == true){
+          StopLifting();
+          EscCtrlStatus = ONLY_DOWN;
+          setUpLedState(LED_OFF);
           break;
         }
 
@@ -352,7 +459,15 @@ static THD_FUNCTION(ESCControl, p) {
       break;
       case ONLY_UP:
 
-        if(GetBottomSwitchState() == false){
+        if(EscControlConf->IsDschAllowedByBMS() == false){
+          StopLifting();
+          EscCtrlStatus = NO_LIFT_ALLOWED;
+          setUpLedState(LED_OFF);
+          setDownLedState(LED_OFF);
+          break;
+        }
+
+        if(GetBottomSwitchState() == false && debounce.btnDown_state == false){
           EscCtrlStatus = UP_AND_DOWN;
           break;
         }
@@ -363,13 +478,29 @@ static THD_FUNCTION(ESCControl, p) {
       break;
       case ONLY_DOWN:
 
+        if(EscControlConf->IsDschAllowedByBMS() == false){
+          StopLifting();
+          EscCtrlStatus = NO_LIFT_ALLOWED;
+          setUpLedState(LED_OFF);
+          setDownLedState(LED_OFF);
+          break;
+        }
+
+        if(GetBottomSwitchState() == true && EscTempAlarm == true){
+          StopLifting();
+          EscCtrlStatus = NO_LIFT_ALLOWED;
+          setUpLedState(LED_OFF);
+          setDownLedState(LED_OFF);
+          break;
+        }
+
         if(GetBottomSwitchState() == true){
           EscCtrlStatus = ONLY_UP;
           setDownLedState(LED_OFF);
           break;
         }
 
-        if((GetMiddleSwitchState() == false || EscControlConf->IsRollingDetected() == false) && (GetBottomSwitchState() == false && GetTopSwitchState() == false)){
+        if((GetMiddleSwitchState() == false || EscControlConf->IsRollingDetected() == false) && (GetBottomSwitchState() == false && GetTopSwitchState() == false)  && debounce.btnUp_state == false){
           EscCtrlStatus = UP_AND_DOWN;
           break;
         }
@@ -378,10 +509,15 @@ static THD_FUNCTION(ESCControl, p) {
         DownButtonProcess();
 
       break;
-      case ONLY_DOWN_TO_END:
-
-      break;
       case RPM_BLOCK:
+
+        if(EscControlConf->IsDschAllowedByBMS() == false){
+          StopLifting();
+          EscCtrlStatus = NO_LIFT_ALLOWED;
+          setUpLedState(LED_OFF);
+          setDownLedState(LED_OFF);
+          break;
+        }
 
         if(debounce.btnUp_state == false && debounce.btnDown_state == false){
           EscCtrlStatus = UP_AND_DOWN;
@@ -395,10 +531,19 @@ static THD_FUNCTION(ESCControl, p) {
           EscCtrlStatus = UP_AND_DOWN;
 
       break;
+      case MAINTENENCE:
+        setUpLedState(LED_OFF);
+        setDownLedState(LED_OFF);
+      break;
     }
 
 
+    CheckWeight();
 
+    CheckRolling();
+
+    if(currently_set_rpm != 0)
+      ReleaseBrake();
 
     /* Both buttons are released */
     if(!debounce.btnUp_state && !debounce.btnDown_state)
@@ -437,7 +582,9 @@ static THD_FUNCTION(ESCControl, p) {
       case BEEP_1S:
         pwmEnableChannel(&PWMD8, 0, PWM_PERCENTAGE_TO_WIDTH(&PWMD8, SPEAKER_ACTIVE_PWM));
         if(BeepCounter > (1000.0f / (float)TASK_PERIOD_MS)){
+          pwmDisableChannel(&PWMD8, 0);
           BeepState = BEEP_END;
+          break;
         }
         BeepCounter++;
 
@@ -445,22 +592,33 @@ static THD_FUNCTION(ESCControl, p) {
       case BEEP_MAINTENANCE:
         pwmEnableChannel(&PWMD8, 0, PWM_PERCENTAGE_TO_WIDTH(&PWMD8, SPEAKER_ACTIVE_PWM));
         if(BeepCounter > (2000.0f / (float)TASK_PERIOD_MS)){
+          pwmDisableChannel(&PWMD8, 0);
           BeepState = BEEP_END;
+          break;
         }
         BeepCounter++;
 
       break;
       case BEEP_END:
+        pwmDisableChannel(&PWMD8, 0);
         BeepCounter = 0;
       break;
     }
 
 
 
-    bldc_interface_get_values();
+    PeriodicDataPostscaler++;
+    if(PeriodicDataPostscaler > PERIODIC_POSTSCALER){
+      bldc_interface_get_values();
+      CalcFilteredACcurrent();
+      PeriodicDataPostscaler = 0;
+    }
+
+    
     chThdSleepMilliseconds(TASK_PERIOD_MS);
   }
 }
+
 
 void ESC_ControlInit(EscControlConf_t* conf){
 
@@ -476,20 +634,23 @@ void ESC_ControlInit(EscControlConf_t* conf){
   debounce.btnDown_currently = 0;
   debounce.btnDown_last      = 0;
 
-  comm_uart_init();
-
   ESC_LedInit();
+
+  comm_uart_init();
 
   bldc_interface_set_rx_value_func(val_received);
 
-  pwmStart(&PWMD8, &pwmcfg);
-
   bldc_interface_get_values();
 
-  SetLiftingSpeed(2);
+  pwmStart(&PWMD8, &pwmcfg);
+
+  SetLiftingSpeed(1);
+
+  InitAcCurrentFilter(10, 2);
 
   chThdCreateStatic(ESCControl_wa, sizeof(ESCControl_wa), NORMALPRIO + 1, ESCControl, NULL);
   chThdCreateStatic(BrakeTask_wa, sizeof(BrakeTask_wa), NORMALPRIO + 1, BrakeTask, NULL);
+  chThdCreateStatic(UptimeCount_wa, sizeof(UptimeCount_wa), NORMALPRIO, UptimeCount, NULL);
 }
 
 double  escGetVoltage(void)          { return mc_val->v_in; }
@@ -510,16 +671,16 @@ uint16_t GetLiftedWeightKg(void){
   return LiftedWeight;
 }
 
-uint16_t GetLiftedWeightLbs(void){
-  return (LiftedWeight * 2.20462f);
-}
-
 bool IsEscInOverTemperature(void){
   return EscTempAlarm;
 }
 
 bool IsInOverWeightState(void){
-  return false;
+  return IsOverWeightPresent;
+}
+
+void SetEscMaintenence(void){
+  EscCtrlStatus = MAINTENENCE;
 }
 
 /*
@@ -536,24 +697,34 @@ void cmd_escCommBtnValues(BaseSequentialStream *chp, int argc, char *argv[]) {
 
     switch(EscCtrlStatus){
       case UP_AND_DOWN:
-        chprintf(chp, "EscCtrlStatus       :UP_AND_DOWN\r\n");
+        chprintf(chp, "EscCtrlStatus     :UP_AND_DOWN\r\n");
 
       break;
       case ONLY_UP:
-        chprintf(chp, "EscCtrlStatus       :ONLY_UP\r\n");
+        chprintf(chp, "EscCtrlStatus     :ONLY_UP\r\n");
       break;
 
       case ONLY_DOWN:
-        chprintf(chp, "EscCtrlStatus       :ONLY_DOWN\r\n");
+        chprintf(chp, "EscCtrlStatus     :ONLY_DOWN\r\n");
       break;
-      case ONLY_DOWN_TO_END:
-        chprintf(chp, "EscCtrlStatus       :ONLY_DOWN_TO_END\r\n");
+      case MAINTENENCE:
+        chprintf(chp, "EscCtrlStatus     :MAINTENENCE\r\n");
       break;
       case NO_LIFT_ALLOWED:
-        chprintf(chp, "EscCtrlStatus       :NO_LIFT_ALLOWED\r\n");
+        chprintf(chp, "EscCtrlStatus     :NO_LIFT_ALLOWED\r\n");
       break;
       case RPM_BLOCK:
-        chprintf(chp, "EscCtrlStatus       :RPM_BLOCK\r\n");
+        chprintf(chp, "EscCtrlStatus     :RPM_BLOCK\r\n");
+      break;
+    }
+
+    switch(EscConnection){
+      case ESC_CONNECTED:
+        chprintf(chp, "ESC status        :ESC_CONNECTED\r\n");
+
+      break;
+      case ESC_DISCONNECTED:
+        chprintf(chp, "ESC status        :ESC_DISCONNECTED\r\n");
       break;
     }
 
@@ -567,9 +738,11 @@ void cmd_escCommBtnValues(BaseSequentialStream *chp, int argc, char *argv[]) {
     chprintf(chp, "currently_set_rpm : %d\r\n", currently_set_rpm          );
     chprintf(chp, "RPMguard : %d\r\n", RPMGuardCounter          );
     chprintf(chp, "Switches : %d, %d, %d\r\n", GetTopSwitchState(), GetBottomSwitchState(), GetMiddleSwitchState());
-    chprintf(chp, "LiftedWeight : %.2f %d %d\r\n", LiftedWeight, GetLiftedWeightKg(), GetLiftedWeightLbs());
+    chprintf(chp, "LiftedWeight : %.2f %d %d\r\n", LiftedWeight, GetLiftedWeightKg());
     chprintf(chp, "Esc overtemp: %d\r\n", EscTempAlarm);
     chprintf(chp, "Brakecounter: %d\r\n", BrakeCounter);
+    chprintf(chp, "Uptimecounter: %d %d\r\n", UptimeCounter, *GetUptimeMin());
+
         
     chThdSleepMilliseconds(100);
   }

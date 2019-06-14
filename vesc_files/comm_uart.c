@@ -31,7 +31,7 @@
 #include <string.h>
 
 // Settings
-#define UART_BAUDRATE			        115200
+#define UART_BAUDRATE			        57600
 #define UART_DEV				        UARTD2
 #define UART_GPIO_AF			        7
 #define DISABLE_SERIAL_IF_USB_ACTIVE    FALSE
@@ -59,9 +59,9 @@ static void send_packet(unsigned char *data, unsigned int len);
 
 // Threads
 static THD_FUNCTION(timer_thread, arg);
-static THD_WORKING_AREA(timer_thread_wa, 512);
+static THD_WORKING_AREA(timer_thread_wa, 1024);
 static THD_FUNCTION(packet_process_thread, arg);
-static THD_WORKING_AREA(packet_process_thread_wa, 4096);
+static THD_WORKING_AREA(packet_process_thread_wa, 8092);
 static thread_t *process_tp;
 
 // Variables

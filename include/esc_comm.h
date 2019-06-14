@@ -19,7 +19,7 @@ typedef enum {
 	UP_AND_DOWN,
 	ONLY_UP,
 	ONLY_DOWN,
-	ONLY_DOWN_TO_END,
+	MAINTENENCE,
 	NO_LIFT_ALLOWED,
 	RPM_BLOCK
 } EscControlStates_t;
@@ -29,6 +29,11 @@ typedef enum {
 	BEEP_MAINTENANCE,
 	BEEP_END
 } BeepTypes_t;
+
+typedef enum {
+	ESC_CONNECTED,
+	ESC_DISCONNECTED
+} ESCConnectionType_t;
 
 static mc_values *mc_val;
 
@@ -59,8 +64,6 @@ void SetLiftingSpeed(uint8_t val);
 
 uint16_t GetLiftedWeightKg(void);
 
-uint16_t GetLiftedWeightLbs(void);
-
 bool IsEscInOverTemperature(void);
 
 bool IsInOverWeightState(void);
@@ -68,5 +71,7 @@ bool IsInOverWeightState(void);
 uint8_t GetLiftingSpeed(void);
 
 void DoBeep(void);
+
+void SetEscMaintenence(void);
 
 #endif
