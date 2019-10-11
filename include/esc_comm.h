@@ -8,7 +8,6 @@
 
 #define RPM_GUARD_OVERFLOW	400
 #define TASK_PERIOD_MS		5
-#define MAX_LIFTED_WEIGHT	600
 
 typedef struct{
 	bool (*IsDschAllowedByBMS)();

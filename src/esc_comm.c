@@ -33,7 +33,7 @@
 
 #define SPEAKER_ACTIVE_PWM      500
 
-#define WEIGHT_LIMIT_KG         530
+#define WEIGHT_LIMIT_KG         380
 
 #define PERIODIC_POSTSCALER     20
 
@@ -187,6 +187,7 @@ void CalcLiftedWeight(void){
 
 void ResetLiftedWeight(void){
   LiftedWeight = 0.0f;
+  IsOverWeightPresent = false;
 }
 
 void DownButtonProcess(void){
@@ -222,6 +223,7 @@ void UpButtonProcess(void){
     return;
   }
 
+
   /* Setting the button LEDs */
   debounce.btnUp_currently   ? setUpLedState(LED_PUSHED)   : setUpLedState(LED_FULL);
   
@@ -245,10 +247,11 @@ void UpButtonProcess(void){
 
 void CheckWeight(void){
 
+/*
   if(!debounce.btnUp_state){
     IsOverWeightPresent = false;
     return;
-  }
+  }*/
 
   if(IsOverWeightPresent == true){
     return;
@@ -451,6 +454,14 @@ static THD_FUNCTION(ESCControl, p) {
           break;
         }
 
+        if(IsOverWeightPresent == true && GetMiddleSwitchState() == true){
+          StopLifting();
+          EscCtrlStatus = ONLY_DOWN;
+          setUpLedState(LED_OFF);
+          break;
+        }
+
+
         RPMGuard();
 
         UpButtonProcess();
@@ -495,12 +506,14 @@ static THD_FUNCTION(ESCControl, p) {
         }
 
         if(GetBottomSwitchState() == true){
+          StopLifting();
           EscCtrlStatus = ONLY_UP;
+          ResetLiftedWeight();
           setDownLedState(LED_OFF);
           break;
         }
 
-        if((GetMiddleSwitchState() == false || EscControlConf->IsRollingDetected() == false) && (GetBottomSwitchState() == false && GetTopSwitchState() == false)  && debounce.btnUp_state == false){
+        if((GetMiddleSwitchState() == false || EscControlConf->IsRollingDetected() == false) && (GetBottomSwitchState() == false && GetTopSwitchState() == false)  && debounce.btnUp_state == false && IsOverWeightPresent == false){
           EscCtrlStatus = UP_AND_DOWN;
           break;
         }
@@ -545,8 +558,8 @@ static THD_FUNCTION(ESCControl, p) {
     if(currently_set_rpm != 0)
       ReleaseBrake();
 
-    /* Both buttons are released */
-    if(!debounce.btnUp_state && !debounce.btnDown_state)
+    /* Both buttons are released or pressed or during ONLY_DOWN the up button is processed */
+    if((!debounce.btnUp_state && !debounce.btnDown_state) || (debounce.btnUp_state && debounce.btnDown_state) || (EscCtrlStatus == ONLY_DOWN && debounce.btnUp_state))
     {
         if (currently_set_rpm > 0)
         {
